@@ -403,6 +403,17 @@ async def cmd_dream(ctx: CommandContext) -> OutboundMessage:
     loop = ctx.loop
     msg = ctx.msg
 
+    if not getattr(loop, "dream_enabled", True):
+        return OutboundMessage(
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content=(
+                "Dream is disabled (agents.defaults.dream.enabled is false). "
+                "Enable it in config to run memory consolidation manually."
+            ),
+            metadata={**dict(msg.metadata or {}), "render_as": "text"},
+        )
+
     async def _run_dream():
         async def _silent(*_args, **_kwargs):
             pass
@@ -477,7 +488,9 @@ async def cmd_dream(ctx: CommandContext) -> OutboundMessage:
 
     asyncio.create_task(_run_dream())
     return OutboundMessage(
-        channel=msg.channel, chat_id=msg.chat_id, content="Dreaming...",
+        channel=msg.channel,
+        chat_id=msg.chat_id,
+        content="Dreaming...",
     )
 
 
@@ -489,7 +502,12 @@ async def cmd_dream_prompt(ctx: CommandContext) -> OutboundMessage:
     args = ctx.args.strip().lower()
 
     if args == "init":
-        if not initialize_workspace_prompt(path, store.default_dream_prompt()):
+        if not getattr(ctx.loop, "dream_enabled", True):
+            content = (
+                "Dream is disabled (agents.defaults.dream.enabled is false). "
+                "Enable it in config before creating Dream memory instructions."
+            )
+        elif not initialize_workspace_prompt(path, store.default_dream_prompt()):
             content = (
                 f"Dream memory instructions already exist at `{display_path}`.\n\n"
                 "Edit that file, or delete/empty it to return to nanobot's default."

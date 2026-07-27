@@ -296,6 +296,7 @@ class AgentLoop:
         runtime_model_publisher: Callable[[str, str | None], None] | None = None,
         restart_mode: str = "auto",
         local_trigger_store: Any | None = None,
+        dream_enabled: bool = True,
     ):
         from nanobot.config.schema import ToolsConfig
 
@@ -449,6 +450,10 @@ class AgentLoop:
         self._register_default_tools(provider_snapshot_loader=provider_snapshot_loader)
         self._runtime_vars: dict[str, Any] = {}
         self._current_iteration: int = 0
+        # Reflects agents.defaults.dream.enabled; command handlers consult this
+        # to refuse /dream and /dream-prompt when Dream is disabled at config
+        # level, keeping the manual surface consistent with the cron guard.
+        self.dream_enabled = dream_enabled
         self.commands = CommandRouter()
         register_builtin_commands(self.commands)
 
@@ -500,6 +505,7 @@ class AgentLoop:
             disabled_skills=defaults.disabled_skills,
             session_ttl_minutes=defaults.session_ttl_minutes,
             consolidation_ratio=defaults.consolidation_ratio,
+            dream_enabled=defaults.dream.enabled,
             tools_config=config.tools,
             model_presets=preset_helpers.configured_model_presets(config),
             model_preset=defaults.model_preset,
