@@ -378,7 +378,7 @@ def test_fresh_workspace_omits_default_prompt_scaffolding(tmp_path) -> None:
 
     prompt = ContextBuilder(workspace).build_system_prompt()
 
-    assert "## AGENTS.md" not in prompt
+    assert "## NANOBOT.md" not in prompt
     assert "## USER.md" not in prompt
     assert "8281248569" not in prompt
     assert "(your name)" not in prompt

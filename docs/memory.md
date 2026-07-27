@@ -84,7 +84,7 @@ workspace/
     └── .git/            # Version history for long-term memory files
 ```
 
-A selected project may provide its own `AGENTS.md`, but project-local `SOUL.md`,
+A selected project may provide its own `NANOBOT.md`, but project-local `SOUL.md`,
 `USER.md`, and `memory/` do not replace the agent-owned files above. This keeps
 one agent's profile and memory continuous while it works across projects. Use a
 separate configured agent workspace when identity or memory must be isolated.

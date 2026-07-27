@@ -54,8 +54,8 @@ async def handle_runtime_control(state: Any, msg: InboundMessage, tools: ToolReg
 class ContextBuilder:
     """Builds the context (system prompt + messages) for the agent."""
 
-    BOOTSTRAP_FILES = ["AGENTS.md", "SOUL.md", "USER.md"]
-    _SKIPPABLE_DEFAULTS = {"AGENTS.md", "USER.md"}
+    BOOTSTRAP_FILES = ["NANOBOT.md", "SOUL.md", "USER.md"]
+    _SKIPPABLE_DEFAULTS = {"NANOBOT.md", "USER.md"}
     _RUNTIME_CONTEXT_TAG = RUNTIME_CONTEXT_TAG
     _MAX_RECENT_HISTORY = 50
     _MAX_HISTORY_TOKENS = 8_000  # hard cap on recent history section size (tokens)
@@ -160,7 +160,7 @@ class ContextBuilder:
         parts = []
         project_root = workspace or self.workspace
         sources = [
-            ("AGENTS.md", project_root),
+            ("NANOBOT.md", project_root),
             ("SOUL.md", self.workspace),
             ("USER.md", self.workspace),
         ]
