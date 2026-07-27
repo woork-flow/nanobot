@@ -9,6 +9,7 @@ import sys
 import time
 from contextlib import suppress
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
 
 from nanobot import __version__
@@ -163,6 +164,22 @@ BUILTIN_COMMAND_SPECS: tuple[BuiltinCommandSpec, ...] = (
         "Show help",
         "List available slash commands.",
         "circle-help",
+    ),
+    BuiltinCommandSpec(
+        "/git",
+        "Git sync",
+        "Commit workspace, pull remote, then push to remote.",
+        "git-branch",
+        "[message]",
+        accepts_args=True,
+    ),
+    BuiltinCommandSpec(
+        "/read",
+        "Read Markdown file",
+        "Print the contents of a Markdown file from the workspace.",
+        "file-text",
+        "<filename>",
+        accepts_args=True,
     ),
     BuiltinCommandSpec(
         "/pairing",
@@ -988,6 +1005,127 @@ async def cmd_trigger(ctx: CommandContext) -> OutboundMessage:
         metadata={**dict(ctx.msg.metadata or {}), "render_as": "text"},
     )
 
+
+def _resolve_loop_workspace(ctx: CommandContext) -> Path:
+    """Resolve the workspace path from the command context's loop.
+
+    Mirrors the lookup used by ``cmd_trigger``: prefers ``loop.workspace``,
+    then ``loop.context.workspace``.
+    """
+    loop = ctx.loop
+    workspace = getattr(loop, "workspace", None)
+    if workspace is None:
+        workspace = getattr(getattr(loop, "context", None), "workspace", None)
+    if workspace is None:
+        raise RuntimeError("workspace unavailable for this command")
+    return Path(workspace).expanduser().resolve(strict=False)
+
+
+async def cmd_git(ctx: CommandContext) -> OutboundMessage:
+    """Commit the workspace, pull from remote, then push to remote.
+
+    Usage: /git [commit message]
+
+    Runs ``git add -A``, ``git commit``, ``git pull --rebase``, ``git push``
+    in the session's workspace. Without an explicit commit message a
+    timestamped default is generated. Runs the blocking subprocess calls in a
+    worker thread so the agent loop stays responsive.
+    """
+    workspace = _resolve_loop_workspace(ctx)
+    message = ctx.args.strip() or f"nanobot sync @ {time.strftime('%Y-%m-%d %H:%M:%S')}"
+
+    def _run_git() -> tuple[int, str, str]:
+        steps: list[list[str]] = [
+            ["git", "add", "-A"],
+            ["git", "commit", "-m", message],
+            ["git", "pull", "--rebase"],
+            ["git", "push"],
+        ]
+        outs: list[str] = []
+        for argv in steps:
+            proc = subprocess.run(
+                argv,
+                cwd=str(workspace),
+                capture_output=True,
+                text=True,
+            )
+            stdout = proc.stdout.strip()
+            stderr = proc.stderr.strip()
+            outs.append(
+                f"$ {' '.join(argv)}\n{stdout}\n{stderr}".strip()
+            )
+            # commit may legitimately have nothing to stage; tolerate exit 1.
+            if proc.returncode != 0 and argv[1] != "commit":
+                return proc.returncode, "\n\n".join(outs), stderr
+        return 0, "\n\n".join(outs), ""
+
+    try:
+        rc, transcript, err = await asyncio.to_thread(_run_git)
+    except FileNotFoundError:
+        return _git_outbound(ctx, "Git is not installed (`git` not found on PATH).")
+    except Exception as exc:  # pragma: no cover - defensive
+        return _git_outbound(ctx, f"Git sync failed: {exc}")
+
+    status = "✓ synced" if rc == 0 else f"✗ failed (exit {rc})"
+    content = f"Git {status}\n\n```\n{transcript}\n```"
+    if err and rc != 0:
+        content += f"\n\nstderr:\n```\n{err}\n```"
+    return _git_outbound(ctx, content)
+
+
+def _git_outbound(ctx: CommandContext, content: str) -> OutboundMessage:
+    return OutboundMessage(
+        channel=ctx.msg.channel,
+        chat_id=ctx.msg.chat_id,
+        content=content,
+        metadata={**dict(ctx.msg.metadata or {}), "render_as": "text"},
+    )
+
+
+async def cmd_read(ctx: CommandContext) -> OutboundMessage:
+    """Read a Markdown file from the workspace and return its contents.
+
+    Usage: /read <filename>
+
+    The path is resolved against the workspace and must stay within it when
+    ``restrict_to_workspace`` is enabled. Only ``.md`` files are served.
+    """
+    from nanobot.security.workspace_policy import resolve_allowed_path
+
+    name = ctx.args.strip()
+    if not name:
+        return _git_outbound(ctx, "Usage: /read <filename>\n\nRead a Markdown file from the workspace.")
+
+    workspace = _resolve_loop_workspace(ctx)
+    loop = ctx.loop
+    restrict = bool(getattr(loop, "restrict_to_workspace", False))
+    allowed_root = workspace if restrict else None
+
+    try:
+        resolved = resolve_allowed_path(
+            name,
+            workspace=workspace,
+            allowed_root=allowed_root,
+            strict=False,
+        )
+    except Exception as exc:
+        return _git_outbound(ctx, f"Cannot read `{name}`: {exc}")
+
+    if resolved.suffix.lower() != ".md":
+        return _git_outbound(ctx, f"Refused: `{name}` is not a Markdown file (only `.md` is supported).")
+
+    if not resolved.is_file():
+        return _git_outbound(ctx, f"File not found: `{resolved.relative_to(workspace)}`")
+
+    try:
+        text = await asyncio.to_thread(resolved.read_text, encoding="utf-8")
+    except Exception as exc:
+        return _git_outbound(ctx, f"Failed to read `{resolved.relative_to(workspace)}`: {exc}")
+
+    rel = resolved.relative_to(workspace).as_posix()
+    content = f"# 📄 {rel}\n\n``````markdown\n{text}\n``````"
+    return _git_outbound(ctx, content)
+
 async def cmd_help(ctx: CommandContext) -> OutboundMessage:
     """Return available slash commands."""
     return OutboundMessage(
@@ -1035,5 +1173,9 @@ def register_builtin_commands(router: CommandRouter) -> None:
     router.prefix("/evaluator-prompt ", cmd_evaluator_prompt)
     router.exact("/skill", cmd_skill)
     router.exact("/help", cmd_help)
+    router.exact("/git", cmd_git)
+    router.prefix("/git ", cmd_git)
+    router.exact("/read", cmd_read)
+    router.prefix("/read ", cmd_read)
     router.exact("/pairing", cmd_pairing)
     router.prefix("/pairing ", cmd_pairing)
