@@ -722,7 +722,7 @@ class AgentLoop:
             session_metadata=ctx.session.metadata,
             workspace=scope.project_path,
             runtime_context_blocks=ctx.runtime_context_blocks,
-            include_memory_recent_history=not ctx.ephemeral,
+            include_memory_recent_history=(not ctx.ephemeral and self.dream_enabled),
             session_key=ctx.session.key,
             unified_session=self._unified_session,
         )
