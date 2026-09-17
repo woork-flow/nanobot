@@ -82,7 +82,7 @@ workspace/
     └── .git/            # Version history for long-term memory files
 ```
 
-A selected project may provide its own `AGENTS.md`, but project-local `SOUL.md`,
+A selected project may provide its own `NANOBOT.md`, but project-local `SOUL.md`,
 `USER.md`, and `memory/` do not replace the agent-owned files above. This keeps
 one agent's profile and memory continuous while it works across projects. Use a
 separate configured agent workspace when identity or memory must be isolated.
@@ -183,6 +183,7 @@ Dream is configured under `agents.defaults.dream`:
   "agents": {
     "defaults": {
       "dream": {
+        "enabled": true,
         "intervalH": 2,
         "modelOverride": null
       }
@@ -193,9 +194,47 @@ Dream is configured under `agents.defaults.dream`:
 
 | Field | Meaning |
 |-------|---------|
+| `enabled` | Whether Dream is on at all (default `true`) |
 | `intervalH` | How often Dream runs, in hours |
 | `cron` | Cron expression override (takes precedence over `intervalH`) |
 | `modelOverride` | Optional model preset name used for Dream |
+
+### Turning Dream off
+
+Set `agents.defaults.dream.enabled` to `false` to switch Dream off completely:
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "dream": {
+        "enabled": false
+      }
+    }
+  }
+}
+```
+
+What changes when Dream is disabled:
+
+- The periodic Dream job is not registered, and a previously registered job is
+  removed, so it does not come back after a restart.
+- Every manual Dream command is refused with the same message naming the config
+  key: `/dream`, `/dream-prompt`, `/dream-log`, and `/dream-restore`. This
+  includes read-only views such as listing saved versions. Nothing is
+  consolidated, written, or rolled back while disabled.
+- Conversation history recorded while Dream is off is skipped rather than
+  queued. Re-enabling Dream processes only the history that arrives afterwards,
+  so it never has to swallow the disabled period in one oversized run.
+
+What does not change:
+
+- Memory you already have stays in place. `SOUL.md`, `USER.md`, and
+  `memory/MEMORY.md` are still read and injected into the agent's context.
+- Session compaction and archiving keep working; they are separate mechanisms
+  with their own summaries.
+
+In short, disabling Dream stops the automatic organizing, not the memory.
 
 In practical terms:
 

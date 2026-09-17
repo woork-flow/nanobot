@@ -339,12 +339,12 @@ class TestSyncWorkspaceTemplates:
         """Should not overwrite files that already exist."""
         workspace = tmp_path / "workspace"
         workspace.mkdir(parents=True)
-        (workspace / "AGENTS.md").write_text("existing content")
+        (workspace / "NANOBOT.md").write_text("existing content")
 
         sync_workspace_templates(workspace, silent=True)
 
         # Existing file should not be changed
-        content = (workspace / "AGENTS.md").read_text()
+        content = (workspace / "NANOBOT.md").read_text()
         assert content == "existing content"
 
     def test_does_not_create_tools_md(self, tmp_path):

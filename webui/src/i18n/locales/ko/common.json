@@ -1498,6 +1498,14 @@
             "title": "도움말 보기",
             "description": "사용 가능한 슬래시 명령을 나열합니다."
           },
+          "git": {
+            "title": "Git 동기화",
+            "description": "워크스페이스를 커밋하고 rebase로 가져온 뒤 푸시합니다."
+          },
+          "read": {
+            "title": "Markdown 파일 읽기",
+            "description": "워크스페이스의 Markdown 파일을 표시합니다."
+          },
           "pairing": {
             "title": "페어링",
             "description": "페어링 요청을 관리합니다."

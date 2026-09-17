@@ -1707,6 +1707,14 @@
             "title": "查看帮助",
             "description": "列出可用的斜杠命令。"
           },
+          "git": {
+            "title": "Git 同步",
+            "description": "提交工作区，以 rebase 方式拉取后推送。"
+          },
+          "read": {
+            "title": "读取 Markdown 文件",
+            "description": "显示工作区内的 Markdown 文件。"
+          },
           "pairing": {
             "title": "配对",
             "description": "管理配对请求。"

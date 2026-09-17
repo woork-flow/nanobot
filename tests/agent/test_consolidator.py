@@ -1438,8 +1438,8 @@ class TestCompactIdleSession:
     ):
         project = tmp_path / "project"
         project.mkdir()
-        (tmp_path / "AGENTS.md").write_text("GLOBAL_WORKSPACE_MARKER", encoding="utf-8")
-        (project / "AGENTS.md").write_text("PROJECT_WORKSPACE_MARKER", encoding="utf-8")
+        (tmp_path / "NANOBOT.md").write_text("GLOBAL_WORKSPACE_MARKER", encoding="utf-8")
+        (project / "NANOBOT.md").write_text("PROJECT_WORKSPACE_MARKER", encoding="utf-8")
         loop = loop_factory(provider=mock_provider, unified_session=True)
         runtime = loop.llm_runtime()
         runtime.provider.chat_stream_with_retry.return_value = LLMResponse(

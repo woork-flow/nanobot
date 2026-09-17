@@ -186,12 +186,12 @@ paths have different responsibilities:
 
 | Selected project provides | Agent workspace continues to provide |
 |---|---|
-| Project `AGENTS.md` | `SOUL.md` and `USER.md` |
+| Project `NANOBOT.md` | `SOUL.md` and `USER.md` |
 | Relative file paths and shell working directory | Long-term memory and history |
 | The normal read/write boundary in Restricted mode | Custom skills and instance state |
 
 Project-local `SOUL.md` and `USER.md` files are ignored, and the agent workspace's
-`AGENTS.md` is not inherited by a separately selected project. When the selected
+`NANOBOT.md` is not inherited by a separately selected project. When the selected
 project is the configured agent workspace, both roles naturally use the same
 directory.
 

@@ -35,6 +35,8 @@ const SLASH_COMMAND_KEYS = [
   "goal",
   "trigger",
   "help",
+  "git",
+  "read",
   "pairing",
 ];
 const SETTINGS_NAV_KEYS = [

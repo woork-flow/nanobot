@@ -79,23 +79,23 @@ class TestLoadBootstrapFiles:
         assert builder._load_bootstrap_files() == ""
 
     def test_empty_bootstrap_files(self, tmp_path):
-        (tmp_path / "AGENTS.md").write_text("\n", encoding="utf-8")
+        (tmp_path / "NANOBOT.md").write_text("\n", encoding="utf-8")
         builder = _builder(tmp_path)
         assert builder._load_bootstrap_files() == ""
 
     def test_agents_md(self, tmp_path):
-        (tmp_path / "AGENTS.md").write_text("Be helpful.", encoding="utf-8")
+        (tmp_path / "NANOBOT.md").write_text("Be helpful.", encoding="utf-8")
         builder = _builder(tmp_path)
         result = builder._load_bootstrap_files()
-        assert "## AGENTS.md" in result
+        assert "## NANOBOT.md" in result
         assert "Be helpful." in result
 
     def test_multiple_bootstrap_files(self, tmp_path):
-        (tmp_path / "AGENTS.md").write_text("Rules.", encoding="utf-8")
+        (tmp_path / "NANOBOT.md").write_text("Rules.", encoding="utf-8")
         (tmp_path / "SOUL.md").write_text("Soul.", encoding="utf-8")
         builder = _builder(tmp_path)
         result = builder._load_bootstrap_files()
-        assert "## AGENTS.md" in result
+        assert "## NANOBOT.md" in result
         assert "## SOUL.md" in result
         assert "Rules." in result
         assert "Soul." in result
@@ -116,7 +116,7 @@ class TestLoadBootstrapFiles:
         assert "workspace tool notes" not in result
 
     def test_utf8_content(self, tmp_path):
-        (tmp_path / "AGENTS.md").write_text("用中文回复", encoding="utf-8")
+        (tmp_path / "NANOBOT.md").write_text("用中文回复", encoding="utf-8")
         builder = _builder(tmp_path)
         result = builder._load_bootstrap_files()
         assert "用中文回复" in result
@@ -126,10 +126,10 @@ class TestLoadBootstrapFiles:
         project = tmp_path / "project"
         agent_home.mkdir()
         project.mkdir()
-        (agent_home / "AGENTS.md").write_text("global project rules", encoding="utf-8")
+        (agent_home / "NANOBOT.md").write_text("global project rules", encoding="utf-8")
         (agent_home / "SOUL.md").write_text("global soul", encoding="utf-8")
         (agent_home / "USER.md").write_text("global user", encoding="utf-8")
-        (project / "AGENTS.md").write_text("selected project rules", encoding="utf-8")
+        (project / "NANOBOT.md").write_text("selected project rules", encoding="utf-8")
         (project / "SOUL.md").write_text("project soul collision", encoding="utf-8")
         (project / "USER.md").write_text("project user collision", encoding="utf-8")
 
@@ -147,7 +147,7 @@ class TestLoadBootstrapFiles:
         project = tmp_path / "project"
         agent_home.mkdir()
         project.mkdir()
-        (agent_home / "AGENTS.md").write_text("default workspace rules", encoding="utf-8")
+        (agent_home / "NANOBOT.md").write_text("default workspace rules", encoding="utf-8")
 
         result = ContextBuilder(agent_home).build_system_prompt(workspace=project)
 
@@ -160,7 +160,7 @@ class TestLoadBootstrapFiles:
 
         result = ContextBuilder(tmp_path)._load_bootstrap_files()
 
-        assert "## AGENTS.md" not in result
+        assert "## NANOBOT.md" not in result
         assert "## USER.md" not in result
         assert "## SOUL.md" in result
 
@@ -324,7 +324,7 @@ class TestBuildSystemPrompt:
         assert f"{project.resolve()}/SOUL.md" not in result
 
     def test_includes_bootstrap_files(self, tmp_path):
-        (tmp_path / "AGENTS.md").write_text("Be helpful and concise.", encoding="utf-8")
+        (tmp_path / "NANOBOT.md").write_text("Be helpful and concise.", encoding="utf-8")
         builder = _builder(tmp_path)
         result = builder.build_system_prompt()
         assert "Be helpful and concise." in result
@@ -345,7 +345,7 @@ class TestBuildSystemPrompt:
         assert builder.build_system_prompt(session_summary=summary) == builder.build_system_prompt()
 
     def test_sections_separated_by_separator(self, tmp_path):
-        (tmp_path / "AGENTS.md").write_text("Rules.", encoding="utf-8")
+        (tmp_path / "NANOBOT.md").write_text("Rules.", encoding="utf-8")
         builder = _builder(tmp_path)
         summary = {"text": "Summary.", "last_active": "2026-08-19T10:00:00"}
         result = builder.build_system_prompt(session_summary=summary)
@@ -354,8 +354,32 @@ class TestBuildSystemPrompt:
     def test_no_bootstrap_no_summary(self, tmp_path):
         builder = _builder(tmp_path)
         result = builder.build_system_prompt()
-        assert "## AGENTS.md" not in result
+        assert "## NANOBOT.md" not in result
         assert "[Archived Context Summary]" not in result
+
+    def test_unconsolidated_history_is_not_injected(self, tmp_path):
+        """Dream's pending history must never leak into the system prompt.
+
+        Only durable memory belongs here. Injecting un-consolidated turns would
+        be a Dream-coupled context surface that the Dream switch must control.
+        """
+        builder = _builder(tmp_path)
+        builder.memory.write_memory("# Memory\n- durable fact")
+        builder.memory.append_history("recent unconsolidated detail")
+        assert builder.memory.build_dream_prompt() is not None
+
+        result = builder.build_system_prompt()
+
+        assert "durable fact" in result
+        assert "recent unconsolidated detail" not in result
+
+    def test_memory_injection_is_independent_of_temporary_sessions(self, tmp_path):
+        """A temporary (non-persisting) session drops memory but not via Dream."""
+        builder = _builder(tmp_path)
+        builder.memory.write_memory("# Memory\n- durable fact")
+
+        assert "durable fact" in builder.build_system_prompt()
+        assert "durable fact" not in builder.build_system_prompt(include_memory=False)
 
 
 # ---------------------------------------------------------------------------

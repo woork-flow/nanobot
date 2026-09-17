@@ -1498,6 +1498,14 @@
             "title": "ヘルプを表示",
             "description": "利用可能なスラッシュコマンドを一覧表示します。"
           },
+          "git": {
+            "title": "Git 同期",
+            "description": "ワークスペースをコミットし、rebase で取得してプッシュします。"
+          },
+          "read": {
+            "title": "Markdown ファイルを読む",
+            "description": "ワークスペースの Markdown ファイルを表示します。"
+          },
           "pairing": {
             "title": "ペアリング",
             "description": "ペアリングリクエストを管理します。"

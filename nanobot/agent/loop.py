@@ -299,6 +299,7 @@ class AgentLoop:
         local_trigger_store: LocalTriggerStore | None = None,
         idle_compact_check_interval_seconds: int = 0,
         recovery_admission: RecoveryAdmission | None = None,
+        dream_enabled: bool = True,
     ):
         from nanobot.config.schema import ToolsConfig
 
@@ -363,6 +364,10 @@ class AgentLoop:
         self.cron_service = cron_service
         self.local_trigger_store = local_trigger_store
         self.restrict_to_workspace = restrict_to_workspace
+        # Reflects agents.defaults.dream.enabled; command handlers consult this
+        # to refuse /dream and friends when Dream is disabled at config level,
+        # keeping the manual surface consistent with the cron guard.
+        self.dream_enabled = dream_enabled
         self.workspace_scopes = WorkspaceScopeResolver(
             default_workspace=workspace,
             default_restrict_to_workspace=restrict_to_workspace,
@@ -514,6 +519,7 @@ class AgentLoop:
             model_presets=preset_helpers.configured_model_presets(config),
             model_preset=defaults.model_preset,
             dream_model_preset=defaults.dream.model_override,
+            dream_enabled=defaults.dream.enabled,
             restart_mode=config.gateway.restart_mode,
             provider_snapshot_loader=provider_snapshot_loader,
             preset_snapshot_loader=preset_snapshot_loader,

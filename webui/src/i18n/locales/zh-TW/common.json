@@ -1498,6 +1498,14 @@
             "title": "檢視說明",
             "description": "列出可用的斜線命令。"
           },
+          "git": {
+            "title": "Git 同步",
+            "description": "提交工作區，以 rebase 方式拉取後推送。"
+          },
+          "read": {
+            "title": "讀取 Markdown 檔案",
+            "description": "顯示工作區內的 Markdown 檔案。"
+          },
           "pairing": {
             "title": "配對",
             "description": "管理配對請求。"

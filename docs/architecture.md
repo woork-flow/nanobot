@@ -165,7 +165,7 @@ a WebUI chat may select a separate project:
 | Concern | Path owner |
 |---|---|
 | Session namespace, `SOUL.md`, `USER.md`, memory, and custom skills | Configured agent workspace |
-| Project `AGENTS.md`, relative tool paths, and shell working directory | Effective project workspace |
+| Project `NANOBOT.md`, relative tool paths, and shell working directory | Effective project workspace |
 | Workspace access mode and project metadata | Session workspace scope |
 
 `ContextBuilder` combines project instructions with agent-owned profile and

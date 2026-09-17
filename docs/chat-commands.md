@@ -25,7 +25,76 @@ These commands work inside chat channels and interactive agent sessions:
 | `/pairing deny <code>` | Deny a pending pairing request |
 | `/pairing revoke <user_id>` | Revoke a previously approved user on the current channel |
 | `/pairing revoke <channel> <user_id>` | Revoke a previously approved user on a specific channel |
+| `/git` | Commit the workspace, pull with rebase, then push |
+| `/git <message>` | Same sync with an explicit commit message |
+| `/read <filename>` | Print a Markdown file from the workspace |
 | `/help` | Show available in-chat commands |
+
+## Workspace Git Sync
+
+`/git` backs up or shares the workspace by committing it and syncing with the
+remote:
+
+```text
+/git
+/git Fix the onboarding notes
+```
+
+The steps always run in this order: stage everything the workspace's own ignore
+rules allow, commit, `git pull --rebase`, then `git push`. Without an explicit
+message the commit is titled `nanobot sync @ YYYY-MM-DD HH:MM:SS` in the
+configured timezone. An explicit message is used verbatim, including spaces,
+line breaks, and text that starts with `-`.
+
+The command runs in the workspace that applies to the current chat: a chat
+bound to its own project syncs that project, and every other chat syncs the
+configured default workspace. Nothing outside that workspace is touched.
+
+`/git` acknowledges immediately and keeps working in the background, so other
+chats stay responsive while a slow remote answers. The result is reported back
+in the same chat:
+
+- `Git ✓ synced` — with the command transcript for each step. A clean tree with
+  nothing to commit is a success, not an error.
+- `Git ✗ failed (exit N)` — with the failing step, the transcript, and a
+  readable explanation. The sequence stops at the first real failure, so a
+  broken commit is never pushed.
+
+Failures are explained in plain terms, including: the workspace is not a Git
+repository, no remote or upstream is configured, the remote is unreachable,
+credentials or push rights were rejected, and a rebase conflict. Each Git step
+is time-limited and never waits for interactive input, so credential prompts or
+unknown host keys fail fast instead of hanging. A rebase conflict leaves the
+workspace mid-rebase, and the reply says how to continue or abort.
+
+Credentials are never echoed: tokens and passwords inside remote URLs are
+redacted from the output.
+
+**Access and availability.** `/git` pushes workspace content to a remote, so it
+follows the same authorization as other chat commands: only senders your channel
+accepts — the allowlist, a `*` allow-all entry, or an approved pairing — can run
+it. It is available in every channel that supports slash commands (including the
+WebUI). Ignore rules are respected as-is: `/git` stages what the workspace's own
+`.gitignore` allows and never weakens it to make a sync succeed.
+
+## Reading Workspace Markdown
+
+`/read` prints a Markdown file from the workspace:
+
+```text
+/read NANOBOT.md
+/read docs/notes.md
+```
+
+Paths resolve against the current chat's workspace and support subdirectories.
+Only `.md` files are served, and the file must stay inside that workspace even
+when `tools.restrictToWorkspace` is disabled — absolute paths, `..` traversal,
+and symlinks that point outside are refused. Large files are truncated with a
+notice, and content that is not UTF-8 text is reported rather than dumped. The
+command is read-only and always replies with a readable message; it never
+changes a file or the workspace boundary. Like other commands, `/read` is
+available only to senders your channel accepts, in every channel that supports
+slash commands.
 
 ## Pairing
 
