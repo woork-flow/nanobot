@@ -75,8 +75,8 @@ class TranscriptInput:
 class ContextBuilder:
     """Builds the context (system prompt + messages) for the agent."""
 
-    BOOTSTRAP_FILES = ["AGENTS.md", "SOUL.md", "USER.md"]
-    _SKIPPABLE_DEFAULTS = {"AGENTS.md", "USER.md"}
+    BOOTSTRAP_FILES = ["NANOBOT.md", "SOUL.md", "USER.md"]
+    _SKIPPABLE_DEFAULTS = {"NANOBOT.md", "USER.md"}
 
     def __init__(self, workspace: Path, timezone: str | None = None, disabled_skills: list[str] | None = None):
         self.workspace = workspace
@@ -183,7 +183,7 @@ class ContextBuilder:
         parts: list[str] = []
         project_root = workspace or self.workspace
         sources = [
-            ("AGENTS.md", project_root),
+            ("NANOBOT.md", project_root),
             ("SOUL.md", self.workspace),
             ("USER.md", self.workspace),
         ]

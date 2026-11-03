@@ -2032,6 +2032,14 @@
             "title": "Afficher l’aide",
             "description": "Affichez les commandes slash disponibles."
           },
+          "git": {
+            "title": "Synchronisation Git",
+            "description": "Valide l’espace de travail, récupère avec rebase puis pousse."
+          },
+          "read": {
+            "title": "Lire un fichier Markdown",
+            "description": "Affiche un fichier Markdown de l’espace de travail."
+          },
           "pairing": {
             "title": "Appairage",
             "description": "Gérez les demandes d’association."

@@ -655,7 +655,7 @@ class TestEphemeralDirect:
         store.write_user(markers["USER.md"])
         store.write_memory(markers["memory/MEMORY.md"])
         store.append_history("history-marker")
-        (tmp_path / "AGENTS.md").write_text("DREAM_AGENTS_MARKER", encoding="utf-8")
+        (tmp_path / "NANOBOT.md").write_text("DREAM_AGENTS_MARKER", encoding="utf-8")
 
         result = store.build_dream_prompt()
         assert result is not None
@@ -898,3 +898,60 @@ class TestDreamContentDiff:
         store.git.auto_commit("initial")
         store.set_last_dream_cursor(99)  # only memory/.dream_cursor changes
         assert store.dream_content_diff() == ""
+class TestDreamEnabledConfigWiring:
+    """`agents.defaults.dream.enabled` must reach the loop the commands read."""
+
+    @pytest.mark.parametrize("enabled", [True, False])
+    def test_from_config_propagates_dream_enabled(self, tmp_path, enabled, monkeypatch):
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+
+        from nanobot.agent.loop import AgentLoop
+        from nanobot.agent.tools.registry import ToolRegistry
+        from nanobot.config.schema import Config
+
+        provider = MagicMock()
+        provider.get_default_model.return_value = "openai/gpt-4.1"
+        provider.generation = SimpleNamespace(
+            max_tokens=4096, temperature=0.1, reasoning_effort=None,
+        )
+        monkeypatch.setattr(
+            "nanobot.providers.factory.make_provider",
+            lambda *args, **kwargs: provider,
+        )
+        config = Config.model_validate({
+            "agents": {
+                "defaults": {
+                    "model": "openai/gpt-4.1",
+                    "workspace": str(tmp_path),
+                    "dream": {"enabled": enabled},
+                },
+            },
+        })
+
+        loop = AgentLoop.from_config(config, tool_registry=ToolRegistry())
+
+        assert loop.dream_enabled is enabled
+
+    def test_defaults_to_enabled(self, tmp_path):
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock, patch
+
+        from nanobot.agent.loop import AgentLoop
+        from nanobot.agent.tools.registry import ToolRegistry
+        from nanobot.config.schema import Config
+
+        provider = MagicMock()
+        provider.get_default_model.return_value = "openai/gpt-4.1"
+        provider.generation = SimpleNamespace(
+            max_tokens=4096, temperature=0.1, reasoning_effort=None,
+        )
+        config = Config.model_validate({
+            "agents": {"defaults": {"model": "openai/gpt-4.1", "workspace": str(tmp_path)}},
+        })
+        assert config.agents.defaults.dream.enabled is True
+
+        with patch("nanobot.providers.factory.make_provider", return_value=provider):
+            loop = AgentLoop.from_config(config, tool_registry=ToolRegistry())
+
+        assert loop.dream_enabled is True

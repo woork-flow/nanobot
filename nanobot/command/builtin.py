@@ -4,12 +4,18 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
+import shlex
+import shutil
 import subprocess
 import sys
 import time
 from contextlib import suppress
 from dataclasses import dataclass, replace
+from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
+from zoneinfo import ZoneInfo
 
 from loguru import logger
 
@@ -174,6 +180,22 @@ BUILTIN_COMMAND_SPECS: tuple[BuiltinCommandSpec, ...] = (
         "List skills",
         "List all enabled skills available to the agent.",
         "wrench",
+    ),
+    BuiltinCommandSpec(
+        "/git",
+        "Git sync",
+        "Commit workspace, pull remote, then push to remote.",
+        "git-branch",
+        "[message]",
+        accepts_args=True,
+    ),
+    BuiltinCommandSpec(
+        "/read",
+        "Read Markdown file",
+        "Print the contents of a Markdown file from the workspace.",
+        "file-text",
+        "<filename>",
+        accepts_args=True,
     ),
     BuiltinCommandSpec(
         "/help",
@@ -456,6 +478,9 @@ async def cmd_dream(ctx: CommandContext) -> OutboundMessage:
     loop = ctx.loop
     msg = ctx.msg
 
+    if (refusal := _dream_disabled_outbound(ctx)) is not None:
+        return refusal
+
     async def _run_dream():
         from nanobot.agent.memory import MemoryStore
 
@@ -530,6 +555,10 @@ async def cmd_dream(ctx: CommandContext) -> OutboundMessage:
 
 async def cmd_dream_prompt(ctx: CommandContext) -> OutboundMessage:
     """Show or set up the workspace Dream memory instructions."""
+    # Every Dream form is refused while disabled, including this read-only view
+    # and its usage hints, so the disabled surface stays uniform.
+    if (refusal := _dream_disabled_outbound(ctx)) is not None:
+        return refusal
     store = ctx.loop.context.memory
     path = store.dream_prompt_file
     display_path = path.relative_to(store.workspace).as_posix()
@@ -668,6 +697,14 @@ def _format_changed_files(diff: str) -> str:
 
 _DREAM_COMMIT_PREFIX = "dream:"
 
+# Shared refusal used by every manual Dream command (run, prompt, log,
+# restore) so the disabled-config message stays identical across the surface,
+# including read-only views such as listing versions.
+_DREAM_DISABLED_MESSAGE = (
+    "Dream is disabled (`agents.defaults.dream.enabled` is false). "
+    "Enable it in config to use Dream commands."
+)
+
 
 def _format_dream_log_content(
     commit: CommitInfo,
@@ -719,12 +756,26 @@ def _format_dream_restore_list(commits: list[CommitInfo]) -> str:
     return "\n".join(lines)
 
 
+def _dream_disabled_outbound(ctx: CommandContext) -> OutboundMessage | None:
+    """Return a refusal message when Dream is disabled at config level, else None."""
+    if getattr(ctx.loop, "dream_enabled", True):
+        return None
+    return OutboundMessage(
+        channel=ctx.msg.channel,
+        chat_id=ctx.msg.chat_id,
+        content=_DREAM_DISABLED_MESSAGE,
+        metadata={**dict(ctx.msg.metadata or {}), "render_as": "text"},
+    )
+
+
 async def cmd_dream_log(ctx: CommandContext) -> OutboundMessage:
     """Show what the last Dream changed.
 
     Default: diff of the latest Dream commit versus its parent.
     With /dream-log <sha>: diff of that specific commit.
     """
+    if (refusal := _dream_disabled_outbound(ctx)) is not None:
+        return refusal
     store = ctx.loop.consolidator.store
     git = store.git
 
@@ -789,6 +840,8 @@ async def cmd_dream_restore(ctx: CommandContext) -> OutboundMessage:
         /dream-restore          — list recent commits
         /dream-restore <sha>    — revert a specific commit
     """
+    if (refusal := _dream_disabled_outbound(ctx)) is not None:
+        return refusal
     store = ctx.loop.consolidator.store
     git = store.git
     if not git.is_initialized():
@@ -1021,6 +1074,617 @@ async def cmd_trigger(ctx: CommandContext) -> OutboundMessage:
         metadata={**dict(ctx.msg.metadata or {}), "render_as": "text"},
     )
 
+_WORKSPACE_UNAVAILABLE_MESSAGE = "Cannot resolve the workspace for this session."
+
+
+def _effective_workspace(ctx: CommandContext) -> Path:
+    """Resolve the workspace that applies to this command's session.
+
+    A session that selected its own project (for example a WebUI chat bound to
+    a repository) uses that project; every other session falls back to the
+    configured default workspace.
+    """
+    loop = ctx.loop
+    resolver = getattr(loop, "workspace_scopes", None)
+    if resolver is not None:
+        # Same precedence as the turn pipeline: the scope carried by this
+        # message wins, then the session's saved scope, then the default
+        # workspace. Reading must not create a session as a side effect, so
+        # only an already-loaded session contributes its saved scope.
+        session_metadata: Any = None
+        sessions = getattr(loop, "sessions", None)
+        if sessions is not None:
+            with suppress(Exception):
+                session = ctx.session or sessions.get_cached(ctx.key)
+                session_metadata = getattr(session, "metadata", None)
+        scope = resolver.for_turn(
+            channel=ctx.msg.channel,
+            message_metadata=ctx.msg.metadata,
+            session_metadata=session_metadata,
+        )
+        return Path(scope.project_path).expanduser().resolve(strict=False)
+    workspace = getattr(loop, "workspace", None)
+    if workspace is None:
+        workspace = getattr(getattr(loop, "context", None), "workspace", None)
+    if workspace is None:
+        raise RuntimeError("workspace unavailable for this command")
+    return Path(workspace).expanduser().resolve(strict=False)
+
+
+def _command_outbound(
+    ctx: CommandContext,
+    content: str,
+    *,
+    render_as_text: bool = True,
+) -> OutboundMessage:
+    """Reply to the originating chat, keeping Markdown rendering unless asked off.
+
+    Short control messages set ``render_as: text`` like the other commands.
+    Reports meant to be read as Markdown (``/git`` results, ``/read`` bodies)
+    keep the channel default so Markdown-capable channels render them and
+    plain-text channels still show readable text.
+    """
+    metadata = dict(ctx.msg.metadata or {})
+    if render_as_text:
+        metadata["render_as"] = "text"
+    return OutboundMessage(
+        channel=ctx.msg.channel,
+        chat_id=ctx.msg.chat_id,
+        content=content,
+        metadata=metadata,
+    )
+
+
+# --- /git -------------------------------------------------------------------
+
+# Every step is bounded so a credential prompt, an unreachable remote, or a
+# hung host-key check cannot keep the workspace sync waiting forever.
+_GIT_STEP_TIMEOUT_S = 120
+_GIT_EXIT_TIMEOUT = 124
+
+_GIT_NOT_INSTALLED_MESSAGE = "Git is not installed (`git` not found on PATH)."
+
+_GIT_NOT_A_REPO_HINT = (
+    "This workspace is not a Git repository, so there is nothing to sync.\n\n"
+    "Run `git init` (and add a remote) in the workspace, or point this chat at "
+    "a workspace that is already a repository."
+)
+_GIT_NO_REMOTE_HINT = (
+    "No usable remote is configured for this workspace, so the sync stopped "
+    "before contacting one.\n\n"
+    "Add a remote with `git remote add origin <url>` and make sure the current "
+    "branch tracks it, then run `/git` again."
+)
+_GIT_AUTH_HINT = (
+    "The remote rejected the credentials or the access rights, so nothing was "
+    "pushed.\n\n"
+    "Check that this host can authenticate non-interactively (SSH key, "
+    "credential helper, or token) and that it may push to this branch. nanobot "
+    "never prompts for credentials, so an interactive login cannot complete here."
+)
+_GIT_UNREACHABLE_HINT = (
+    "The remote could not be reached, so nothing was pushed.\n\n"
+    "Check the network path and the remote URL from this host, then run `/git` "
+    "again. Your local commit, if any, is still in place."
+)
+_GIT_PULL_CONFLICT_HINT = (
+    "`git pull --rebase` stopped on a conflict, so nothing was pushed.\n\n"
+    "The workspace is left mid-rebase with conflict markers in the affected "
+    "files. Resolve them, then run `git rebase --continue` — or "
+    "`git rebase --abort` to return to the state before this `/git` — and run "
+    "`/git` again once the rebase is finished."
+)
+_GIT_HOST_KEY_HINT = (
+    "The SSH connection could not be established without interaction, so "
+    "nothing was pushed.\n\n"
+    "Accept the host key once from a shell on this host (or add it to "
+    "`known_hosts`), then run `/git` again."
+)
+
+_GIT_CONFLICT_MARKERS = (
+    "could not apply",
+    "fix conflicts",
+    "conflict",
+    "unmerged",
+    "rebase in progress",
+)
+_GIT_NO_REMOTE_MARKERS = (
+    "no remote repository specified",
+    "there is no tracking information",
+    "no configured push destination",
+    "does not appear to be a git repository",
+)
+_GIT_AUTH_MARKERS = (
+    "could not read from remote repository",
+    "permission denied",
+    "authentication failed",
+    "invalid username or password",
+    "could not read username",
+    "terminal prompts disabled",
+    "correct access rights",
+    " 403",
+)
+_GIT_UNREACHABLE_MARKERS = (
+    "connection refused",
+    "could not resolve host",
+    "connection timed out",
+    "network is unreachable",
+)
+
+# Redact credentials that Git can echo back, e.g. remote URLs carrying a token.
+_GIT_URL_CREDENTIAL_RE = re.compile(
+    r"(?P<scheme>[a-z][a-z0-9+.-]*://)(?P<user>[^/\s:@]+):(?P<secret>[^/\s@]+)@",
+    re.IGNORECASE,
+)
+_GIT_TOKEN_RE = re.compile(
+    r"\b(?:gh[pousr]_|github_pat_|glpat-|xox[baprs]-)[A-Za-z0-9_-]{6,}\b",
+)
+
+
+def _redact_git_text(text: str) -> str:
+    """Strip credentials and tokens from Git output before it reaches a chat."""
+    if not text:
+        return text
+    redacted = _GIT_URL_CREDENTIAL_RE.sub(
+        lambda match: f"{match.group('scheme')}{match.group('user')}:***@",
+        text,
+    )
+    return _GIT_TOKEN_RE.sub("***", redacted)
+
+
+def _git_env() -> dict[str, str]:
+    """Environment for Git steps: non-interactive, bounded, stable messages."""
+    env = dict(os.environ)
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    env["LC_ALL"] = "C"
+    ssh_command = env.get("GIT_SSH_COMMAND") or "ssh"
+    if "BatchMode" not in ssh_command:
+        ssh_command = f"{ssh_command} -o BatchMode=yes"
+    env["GIT_SSH_COMMAND"] = ssh_command
+    return env
+
+
+@dataclass(frozen=True)
+class _GitStep:
+    """One Git invocation, recorded for the user-facing transcript."""
+
+    argv: tuple[str, ...]
+    returncode: int
+    stdout: str = ""
+    stderr: str = ""
+    timed_out: bool = False
+    visible: bool = True
+
+    def echo(self) -> str:
+        command = " ".join(shlex.quote(part) for part in self.argv)
+        body = "\n".join(
+            part for part in (self.stdout.strip(), self.stderr.strip()) if part
+        )
+        if self.timed_out:
+            body = f"{body}\n(timed out after {_GIT_STEP_TIMEOUT_S}s)".strip()
+        return f"$ {command}\n{body}".strip() if body else f"$ {command}"
+
+    @property
+    def output(self) -> str:
+        return f"{self.stdout}\n{self.stderr}".lower()
+
+
+def _run_git_step(
+    argv: list[str],
+    workspace: Path,
+    env: dict[str, str],
+    *,
+    visible: bool = True,
+) -> _GitStep:
+    """Run one Git step with a hard timeout and no chance of a prompt."""
+    try:
+        proc = subprocess.run(  # noqa: S603 - fixed argv, workspace-scoped cwd
+            argv,
+            cwd=str(workspace),
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=_GIT_STEP_TIMEOUT_S,
+            env=env,
+            stdin=subprocess.DEVNULL,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return _GitStep(
+            argv=tuple(argv),
+            returncode=_GIT_EXIT_TIMEOUT,
+            stdout=_redact_git_text(_decode_git_output(exc.stdout)),
+            stderr=_redact_git_text(_decode_git_output(exc.stderr)),
+            timed_out=True,
+            visible=visible,
+        )
+    except OSError as exc:
+        # A missing working directory surfaces here; report it as a step
+        # failure instead of blaming the Git binary, which is checked up front.
+        return _GitStep(
+            argv=tuple(argv),
+            returncode=1,
+            stderr=exc.strerror or str(exc),
+            visible=visible,
+        )
+    return _GitStep(
+        argv=tuple(argv),
+        returncode=proc.returncode,
+        stdout=_redact_git_text(proc.stdout or ""),
+        stderr=_redact_git_text(proc.stderr or ""),
+        visible=visible,
+    )
+
+
+def _decode_git_output(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
+
+
+def _git_step_hint(step: str, result: _GitStep) -> str:
+    """Translate raw Git failures into something a user can act on."""
+    output = result.output
+    if result.timed_out:
+        return (
+            f"`{step}` did not finish within {_GIT_STEP_TIMEOUT_S}s and was "
+            "cancelled. Nothing was pushed.\n\n"
+            "This usually means the remote is unreachable or a prompt was "
+            "waiting for input; run the same step from a shell on this host to "
+            "see what it needs."
+        )
+    if "not a git repository" in output:
+        return _GIT_NOT_A_REPO_HINT
+    if "host key verification failed" in output or "batchmode" in output:
+        return _GIT_HOST_KEY_HINT
+    if step == "git pull --rebase" and _git_has_conflict(output):
+        return _GIT_PULL_CONFLICT_HINT
+    # A remote that is configured but unreachable or unauthorized is an access
+    # problem; a missing remote or upstream is a configuration problem. Check
+    # the configuration markers first so they are not reported as auth failures.
+    if any(marker in output for marker in _GIT_NO_REMOTE_MARKERS):
+        return _GIT_NO_REMOTE_HINT
+    if any(marker in output for marker in _GIT_UNREACHABLE_MARKERS):
+        return _GIT_UNREACHABLE_HINT
+    if any(marker in output for marker in _GIT_AUTH_MARKERS):
+        return _GIT_AUTH_HINT
+    return f"`{step}` failed (exit {result.returncode})."
+
+
+def _git_has_conflict(output: str) -> bool:
+    return any(marker in output for marker in _GIT_CONFLICT_MARKERS)
+
+
+@dataclass(frozen=True)
+class _GitSyncOutcome:
+    """Result of the fixed stage → commit → pull → push sequence."""
+
+    returncode: int
+    steps: tuple[_GitStep, ...]
+    failed_step: str | None = None
+    hint: str | None = None
+    state: str | None = None
+    no_changes: bool = False
+
+
+def _git_sync(workspace: Path, message: str) -> _GitSyncOutcome:
+    """Commit the workspace, rebase onto the remote, then push.
+
+    Only "nothing to commit" is tolerated; every other failure stops the
+    sequence so a broken commit is never pushed.
+    """
+    env = _git_env()
+    steps: list[_GitStep] = []
+
+    def run(argv: list[str], *, visible: bool = True) -> _GitStep:
+        result = _run_git_step(argv, workspace, env, visible=visible)
+        steps.append(result)
+        return result
+
+    if not workspace.is_dir():
+        return _GitSyncOutcome(
+            returncode=1,
+            steps=tuple(steps),
+            hint=(
+                f"The workspace `{workspace}` does not exist, so there is "
+                "nothing to sync."
+            ),
+        )
+    probe = run(["git", "rev-parse", "--is-inside-work-tree"], visible=False)
+    if probe.returncode != 0:
+        return _GitSyncOutcome(
+            returncode=probe.returncode or 128,
+            steps=tuple(steps),
+            hint=_GIT_NOT_A_REPO_HINT,
+        )
+
+    staged = run(["git", "add", "-A"])
+    if staged.returncode != 0:
+        return _GitSyncOutcome(
+            returncode=staged.returncode,
+            steps=tuple(steps),
+            failed_step="git add -A",
+            hint=_git_step_hint("git add -A", staged),
+        )
+
+    # A clean tree is the only non-failure exit from the commit step.
+    no_changes = run(["git", "diff", "--cached", "--quiet"], visible=False).returncode == 0
+    if not no_changes:
+        commit = run(["git", "commit", "-m", message])
+        if commit.returncode != 0:
+            return _GitSyncOutcome(
+                returncode=commit.returncode,
+                steps=tuple(steps),
+                failed_step="git commit",
+                hint=_git_step_hint("git commit", commit),
+            )
+
+    pull = run(["git", "pull", "--rebase"])
+    if pull.returncode != 0:
+        conflicted = _git_has_conflict(pull.output)
+        state = None
+        if conflicted:
+            status = _run_git_step(
+                ["git", "status", "--short", "--branch"],
+                workspace,
+                env,
+                visible=False,
+            )
+            state = status.stdout.strip() or status.stderr.strip() or None
+        return _GitSyncOutcome(
+            returncode=pull.returncode,
+            steps=tuple(steps),
+            failed_step="git pull --rebase",
+            hint=_git_step_hint("git pull --rebase", pull),
+            state=state,
+            no_changes=no_changes,
+        )
+
+    push = run(["git", "push"])
+    if push.returncode != 0:
+        return _GitSyncOutcome(
+            returncode=push.returncode,
+            steps=tuple(steps),
+            failed_step="git push",
+            hint=_git_step_hint("git push", push),
+            no_changes=no_changes,
+        )
+
+    return _GitSyncOutcome(returncode=0, steps=tuple(steps), no_changes=no_changes)
+
+
+def _format_git_sync(workspace: Path, outcome: _GitSyncOutcome) -> str:
+    """Render a `/git` result: status line, command transcript, then guidance."""
+    if outcome.returncode == 0:
+        header = "Git ✓ synced"
+    else:
+        header = f"Git ✗ failed (exit {outcome.returncode})"
+        if outcome.failed_step:
+            header += f" at `{outcome.failed_step}`"
+
+    transcript = [step.echo() for step in outcome.steps if step.visible]
+    lines = [header, f"Workspace: `{workspace}`", ""]
+    if transcript:
+        lines += ["```", *transcript, "```"]
+    if outcome.no_changes and outcome.returncode == 0:
+        lines += ["", "No local changes to commit; the working tree was already clean."]
+    if outcome.hint:
+        lines += ["", outcome.hint]
+    if outcome.state:
+        lines += ["", "Current repository state:", "```", outcome.state, "```"]
+    return "\n".join(lines)
+
+
+def _default_git_message(ctx: CommandContext) -> str:
+    """Build the timestamped default commit message in the runtime timezone."""
+    tz_name = getattr(getattr(ctx.loop, "context", None), "timezone", None)
+    try:
+        tz = ZoneInfo(tz_name) if tz_name else None
+    except Exception:
+        tz = None
+    now = datetime.now(tz) if tz is not None else datetime.now().astimezone()
+    return f"nanobot sync @ {now.strftime('%Y-%m-%d %H:%M:%S')}"
+
+
+def _schedule_background(ctx: CommandContext, coro: Any) -> None:
+    """Run *coro* off the inbound consumer so other chats keep flowing."""
+    scheduler = getattr(ctx.loop, "schedule_background", None)
+    if scheduler is not None:
+        scheduler(coro)
+        return
+    asyncio.ensure_future(coro)
+
+
+async def cmd_git(ctx: CommandContext) -> OutboundMessage:
+    """Commit the workspace, pull with rebase, then push to the remote.
+
+    Usage: /git [commit message]
+
+    The sequence is fixed: stage everything the workspace's own ignore rules
+    allow, commit, ``git pull --rebase``, ``git push``. Without an explicit
+    message a timestamped default is generated. The blocking Git calls run in a
+    background task so a slow remote never blocks other sessions; the report is
+    published back to the originating chat.
+    """
+    msg = ctx.msg
+    metadata = dict(msg.metadata or {})
+    if shutil.which("git") is None:
+        return _command_outbound(ctx, _GIT_NOT_INSTALLED_MESSAGE)
+    try:
+        workspace = _effective_workspace(ctx)
+    except Exception:
+        logger.exception("Cannot resolve workspace for /git")
+        return _command_outbound(ctx, _WORKSPACE_UNAVAILABLE_MESSAGE)
+
+    message = ctx.args.strip() or _default_git_message(ctx)
+    bus = getattr(ctx.loop, "bus", None)
+
+    async def _run_sync() -> None:
+        try:
+            outcome = await asyncio.to_thread(_git_sync, workspace, message)
+        except FileNotFoundError:
+            content = _GIT_NOT_INSTALLED_MESSAGE
+        except Exception:
+            # Raw internals never reach a chat; the log keeps the details.
+            logger.exception("Git sync failed for {}", workspace)
+            content = (
+                "Git ✗ failed\n\n"
+                f"Workspace: `{workspace}`\n\n"
+                "The sync could not be completed because of an internal error. "
+                "Check the gateway log for details."
+            )
+        else:
+            content = _format_git_sync(workspace, outcome)
+        if bus is None:  # pragma: no cover - defensive
+            logger.warning("No message bus available to report /git result")
+            return
+        await bus.publish_outbound(
+            OutboundMessage(
+                channel=msg.channel,
+                chat_id=msg.chat_id,
+                content=content,
+                metadata=dict(metadata),
+            ),
+        )
+
+    _schedule_background(ctx, _run_sync())
+    return _command_outbound(
+        ctx,
+        f"Git syncing `{workspace}`…\n\nCommit → pull --rebase → push; the result "
+        "follows in this chat.",
+    )
+
+
+# --- /read ------------------------------------------------------------------
+
+# Bound the echoed body so a huge workspace file cannot flood a chat channel.
+# The byte cap keeps the in-memory read bounded too; four bytes per character
+# covers the widest UTF-8 sequence, so truncation never loses visible content.
+_READ_MAX_CHARS = 64_000
+_READ_MAX_BYTES = _READ_MAX_CHARS * 4
+_READ_OUTSIDE_HINT = (
+    "Only files inside this session's workspace can be read, regardless of the "
+    "workspace restriction setting."
+)
+
+
+def _read_text_file(path: Path) -> tuple[str, bool]:
+    """Read *path* as bounded UTF-8 text.
+
+    Returns the decoded text and whether reading stopped early at the byte cap.
+    Binary or non-UTF-8 content raises ``UnicodeError``.
+    """
+    with path.open("rb") as handle:
+        data = handle.read(_READ_MAX_BYTES + 1)
+    capped = len(data) > _READ_MAX_BYTES
+    if capped:
+        data = data[:_READ_MAX_BYTES]
+    if b"\x00" in data[:8192]:
+        raise UnicodeError("binary content")
+    if not capped:
+        return data.decode("utf-8"), False
+    # The byte cap can split a multi-byte sequence; drop only the partial tail.
+    for trim in range(4):
+        if trim:
+            data = data[:-1]
+        try:
+            return data.decode("utf-8"), True
+        except UnicodeDecodeError:
+            continue
+    raise UnicodeError("binary content")
+
+
+def _markdown_fence(text: str) -> str:
+    """Return a backtick fence long enough to wrap *text* verbatim."""
+    longest = max((len(run) for run in re.findall(r"`+", text)), default=0)
+    return "`" * max(3, longest + 1)
+
+
+def _workspace_relative(path: Path, workspace: Path) -> str:
+    try:
+        return path.relative_to(workspace).as_posix()
+    except ValueError:
+        return path.name
+
+
+async def cmd_read(ctx: CommandContext) -> OutboundMessage:
+    """Print a Markdown file from the session workspace.
+
+    Usage: /read <filename>
+
+    Paths resolve against the session's workspace and must stay inside it even
+    when workspace restriction is disabled; only ``.md`` files are served. The
+    command is read-only and always replies with a readable message instead of
+    raising into the agent loop.
+    """
+    from nanobot.security.workspace_policy import resolve_allowed_path
+
+    name = ctx.args.strip()
+    if not name:
+        return _command_outbound(
+            ctx,
+            "Usage: /read <filename>\n\nRead a Markdown file from the workspace.",
+        )
+
+    try:
+        workspace = _effective_workspace(ctx)
+    except Exception:
+        logger.exception("Cannot resolve workspace for /read")
+        return _command_outbound(ctx, _WORKSPACE_UNAVAILABLE_MESSAGE)
+
+    try:
+        resolved = resolve_allowed_path(
+            name,
+            workspace=workspace,
+            allowed_root=workspace,
+            strict=False,
+        )
+        display = _workspace_relative(resolved, workspace)
+        if resolved.is_dir():
+            return _command_outbound(ctx, f"`{display}` is a directory, not a Markdown file.")
+        if resolved.suffix.lower() != ".md":
+            return _command_outbound(
+                ctx,
+                f"Refused: `{display}` is not a Markdown file (only `.md` is supported).",
+            )
+        if not resolved.is_file():
+            return _command_outbound(ctx, f"File not found: `{display}`")
+        try:
+            text, byte_capped = await asyncio.to_thread(_read_text_file, resolved)
+        except PermissionError:
+            return _command_outbound(ctx, f"Permission denied: cannot read `{display}`.")
+        except UnicodeError:
+            return _command_outbound(
+                ctx,
+                f"Cannot read `{display}`: the file is not UTF-8 text "
+                "(binary content or another encoding).",
+            )
+        except OSError as exc:
+            return _command_outbound(
+                ctx,
+                f"Failed to read `{display}`: {exc.strerror or exc.__class__.__name__}.",
+            )
+    except PermissionError:
+        return _command_outbound(
+            ctx,
+            f"Cannot read `{name}`: it is outside the workspace.\n\n{_READ_OUTSIDE_HINT}",
+        )
+    except Exception:
+        logger.exception("Cannot read {!r} from {}", name, workspace)
+        return _command_outbound(ctx, f"Cannot read `{name}`: the path could not be resolved.")
+
+    body = text[:_READ_MAX_CHARS]
+    truncated = len(text) > _READ_MAX_CHARS or byte_capped
+    fence = _markdown_fence(body)
+    content = f"# 📄 {display}\n\n{fence}markdown\n{body}\n{fence}"
+    if truncated:
+        content += (
+            f"\n\n(truncated: showing the first {len(body):,} characters of a larger file)"
+        )
+    return _command_outbound(ctx, content, render_as_text=False)
+
+
 async def cmd_help(ctx: CommandContext) -> OutboundMessage:
     """Return available slash commands."""
     return OutboundMessage(
@@ -1092,6 +1756,10 @@ def register_builtin_commands(router: CommandRouter) -> None:
     router.exact("/evaluator-prompt", cmd_evaluator_prompt)
     router.prefix("/evaluator-prompt ", cmd_evaluator_prompt)
     router.exact("/skill", cmd_skill)
+    router.exact("/git", cmd_git)
+    router.prefix("/git ", cmd_git)
+    router.exact("/read", cmd_read)
+    router.prefix("/read ", cmd_read)
     router.exact("/help", cmd_help)
     router.exact("/pairing", cmd_pairing)
     router.prefix("/pairing ", cmd_pairing)

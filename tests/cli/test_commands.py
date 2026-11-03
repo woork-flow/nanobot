@@ -387,7 +387,7 @@ def test_onboard_fresh_install(mock_paths):
     assert "Created workspace" in result.stdout
     assert "nanobot is ready" in result.stdout
     assert config_file.exists()
-    assert (workspace_dir / "AGENTS.md").exists()
+    assert (workspace_dir / "NANOBOT.md").exists()
     assert (workspace_dir / "memory" / "MEMORY.md").exists()
     expected_workspace = Config().workspace_path
     assert mock_ws.call_args.args == (expected_workspace,)
@@ -412,7 +412,7 @@ def test_onboard_existing_config_refresh(mock_paths):
     assert "Config already exists" in result.stdout
     assert "existing values preserved" in result.stdout
     assert workspace_dir.exists()
-    assert (workspace_dir / "AGENTS.md").exists()
+    assert (workspace_dir / "NANOBOT.md").exists()
 
 
 def test_onboard_existing_config_refresh_non_interactive(mock_paths):
@@ -426,7 +426,7 @@ def test_onboard_existing_config_refresh_non_interactive(mock_paths):
     assert "Config already exists" not in result.stdout
     assert "existing values preserved" in result.stdout
     assert workspace_dir.exists()
-    assert (workspace_dir / "AGENTS.md").exists()
+    assert (workspace_dir / "NANOBOT.md").exists()
 
 
 def test_onboard_existing_config_overwrite(mock_paths):
@@ -452,8 +452,8 @@ def test_onboard_existing_workspace_safe_create(mock_paths):
 
     assert result.exit_code == 0
     assert "Created workspace" not in result.stdout
-    assert "Created AGENTS.md" in result.stdout
-    assert (workspace_dir / "AGENTS.md").exists()
+    assert "Created NANOBOT.md" in result.stdout
+    assert (workspace_dir / "NANOBOT.md").exists()
 
 
 def _strip_ansi(text):
@@ -541,7 +541,7 @@ def test_onboard_uses_explicit_config_and_workspace_paths(tmp_path, monkeypatch)
     assert result.exit_code == 0
     saved = Config.model_validate(json.loads(config_path.read_text(encoding="utf-8")))
     assert saved.workspace_path == workspace_path
-    assert (workspace_path / "AGENTS.md").exists()
+    assert (workspace_path / "NANOBOT.md").exists()
     stripped_output = _strip_ansi(result.stdout)
     compact_output = stripped_output.replace("\n", "")
     resolved_config = str(config_path.resolve())

@@ -30,7 +30,7 @@ _DATA_STORES = (
 )
 _WORKSPACE_STORES = (
     ".nanobot", "memory", "skills", "sessions", "cron", "triggers",
-    "AGENTS.md", "TOOLS.md", "SOUL.md", "USER.md", "HEARTBEAT.md",
+    "NANOBOT.md", "TOOLS.md", "SOUL.md", "USER.md", "HEARTBEAT.md",
 )
 _MAX_RESERVATION_BYTES = 16 * 1024 * 1024
 

@@ -2248,6 +2248,14 @@
             "title": "Show help",
             "description": "Show available slash commands."
           },
+          "git": {
+            "title": "Git sync",
+            "description": "Commit the workspace, pull with rebase, then push."
+          },
+          "read": {
+            "title": "Read Markdown file",
+            "description": "Print the contents of a Markdown file from the workspace."
+          },
           "pairing": {
             "title": "Pairing",
             "description": "Manage pairing requests."

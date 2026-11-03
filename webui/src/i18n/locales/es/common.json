@@ -2033,6 +2033,14 @@
             "title": "Mostrar ayuda",
             "description": "Muestra los comandos de barra disponibles."
           },
+          "git": {
+            "title": "Sincronizar Git",
+            "description": "Confirma el espacio de trabajo, trae cambios con rebase y publica."
+          },
+          "read": {
+            "title": "Leer archivo Markdown",
+            "description": "Muestra un archivo Markdown del espacio de trabajo."
+          },
           "pairing": {
             "title": "Emparejamiento",
             "description": "Gestiona las solicitudes de vinculación."

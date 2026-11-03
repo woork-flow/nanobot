@@ -218,7 +218,7 @@ async def test_cancellation_during_run_cleanup_delivers_finally_once(
 ):
     provider = ControlledProvider()
     loop = loop_factory(provider=provider)
-    prompt_file = tmp_path / "AGENTS.md"
+    prompt_file = tmp_path / "NANOBOT.md"
     prompt_file.write_text("Lifecycle test instructions", encoding="utf-8")
     session = loop.sessions.get_or_create("cli:first")
     session.messages = [

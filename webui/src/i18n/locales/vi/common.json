@@ -2032,6 +2032,14 @@
             "title": "Hiển thị trợ giúp",
             "description": "Hiện các lệnh slash có thể dùng."
           },
+          "git": {
+            "title": "Đồng bộ Git",
+            "description": "Commit workspace, pull với rebase rồi push."
+          },
+          "read": {
+            "title": "Đọc tệp Markdown",
+            "description": "Hiển thị tệp Markdown trong workspace."
+          },
           "pairing": {
             "title": "Ghép nối",
             "description": "Quản lý yêu cầu ghép."

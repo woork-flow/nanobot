@@ -2032,6 +2032,14 @@
             "title": "Tampilkan bantuan",
             "description": "Tampilkan perintah slash yang tersedia."
           },
+          "git": {
+            "title": "Sinkronisasi Git",
+            "description": "Commit workspace, pull dengan rebase, lalu push."
+          },
+          "read": {
+            "title": "Baca berkas Markdown",
+            "description": "Menampilkan berkas Markdown dari workspace."
+          },
           "pairing": {
             "title": "Pemasangan",
             "description": "Kelola permintaan pemasangan."

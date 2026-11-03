@@ -54,7 +54,7 @@ For background checks that should stay quiet unless there is something useful to
 
 Repetition alone does not select heartbeat. "Every day at 8am, remind me to drink water" needs a cron schedule. "Keep an eye on open issues and tell me when one needs attention" can use heartbeat if the check time is flexible. Heartbeat does not guarantee a requested time or interval.
 
-An upgrade does not overwrite your workspace's `AGENTS.md` or convert existing heartbeat entries into cron jobs. The current scheduling rules are included in the system prompt. If an old workspace rule directs all recurring tasks to heartbeat, update that rule too. To correct an existing reminder, remove its old heartbeat entry and create the cron task once. Check the task list to avoid duplicates.
+An upgrade does not overwrite your workspace's `NANOBOT.md` or convert existing heartbeat entries into cron jobs. The current scheduling rules are included in the system prompt. If an old workspace rule directs all recurring tasks to heartbeat, update that rule too. To correct an existing reminder, remove its old heartbeat entry and create the cron task once. Check the task list to avoid duplicates.
 
 ### Change a Scheduled Task
 

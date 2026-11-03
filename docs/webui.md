@@ -171,13 +171,13 @@ Selecting a project does not replace the configured agent workspace. The two pat
 
 | Selected project provides | Agent workspace continues to provide |
 |---|---|
-| Project `AGENTS.md` | `SOUL.md` and `USER.md` |
+| Project `NANOBOT.md` | `SOUL.md` and `USER.md` |
 | Relative file paths and shell working directory | Long-term memory and history |
 | The normal read/write boundary in Restricted mode | Custom skills and instance state |
 
 A new topic separates conversation history; a project selection changes the file working directory. Neither creates a separate long-term memory store. Project switching can therefore carry preferences and facts learned in other topics into the new project. Use [separate instances](./multiple-instances.md) when client or user data must stay separate; see [Memory](./memory.md) for how shared memory is maintained.
 
-Project-local `SOUL.md` and `USER.md` files are ignored, and the agent workspace's `AGENTS.md` is not inherited by a separately selected project. When the selected project is the configured agent workspace, both roles naturally use the same directory.
+Project-local `SOUL.md` and `USER.md` files are ignored, and the agent workspace's `NANOBOT.md` is not inherited by a separately selected project. When the selected project is the configured agent workspace, both roles naturally use the same directory.
 
 The access control in the composer controls the local capability level for the chat. It does not bypass your gateway, provider, shell sandbox, or operating system configuration; it only selects among the capabilities that are already available to the current topic.
 

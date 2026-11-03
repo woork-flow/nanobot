@@ -564,3 +564,121 @@ async def test_dream_restore_rejects_non_dream_commit_clearly() -> None:
     assert "Only Dream memory versions can be restored." in out.content
     assert "Use `/dream-restore` to list recent versions." in out.content
     assert git.revert_calls == []
+# --- Dream disabled at config level (agents.defaults.dream.enabled = false) ---
+
+# Every manual Dream command must refuse with the same wording, name the config
+# key, and leave memory files, the history cursor, and version history untouched.
+_DREAM_DISABLED_REFUSAL = (
+    "Dream is disabled (`agents.defaults.dream.enabled` is false). "
+    "Enable it in config to use Dream commands."
+)
+
+
+def _make_disabled_dream_ctx(tmp_path, raw: str, args: str = "") -> CommandContext:
+    msg = InboundMessage(channel="cli", sender_id="u1", chat_id="direct", content=raw)
+    store = _FakeStore(_FakeGit(initialized=True), dream_prompt_result=("prompt", 1))
+    bus = _FakeBus()
+    loop = SimpleNamespace(
+        bus=bus,
+        context=SimpleNamespace(memory=MemoryStore(tmp_path), timezone="UTC"),
+        consolidator=SimpleNamespace(store=store),
+        sessions=_make_sessions(tmp_path),
+        dream_enabled=False,
+    )
+    return CommandContext(msg=msg, session=None, key=msg.session_key, raw=raw, args=args, loop=loop)
+
+
+def _assert_refused(out) -> None:
+    assert out.content == _DREAM_DISABLED_REFUSAL
+    assert "agents.defaults.dream.enabled" in out.content
+    assert out.metadata.get("render_as") == "text"
+
+
+@pytest.mark.parametrize(
+    ("handler", "raw", "args"),
+    [
+        (cmd_dream_log, "/dream-log", ""),
+        (cmd_dream_log, "/dream-log abc123", "abc123"),
+        (cmd_dream_restore, "/dream-restore", ""),
+        (cmd_dream_restore, "/dream-restore abc123", "abc123"),
+        (cmd_dream_prompt, "/dream-prompt", ""),
+        (cmd_dream_prompt, "/dream-prompt init", "init"),
+        (cmd_dream_prompt, "/dream-prompt bogus", "bogus"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_dream_commands_refused_with_same_message_when_disabled(
+    tmp_path,
+    handler,
+    raw: str,
+    args: str,
+) -> None:
+    ctx = _make_disabled_dream_ctx(tmp_path, raw, args=args)
+
+    out = await handler(ctx)
+
+    _assert_refused(out)
+
+
+@pytest.mark.asyncio
+async def test_cmd_dream_refused_when_disabled(tmp_path) -> None:
+    ctx = _make_disabled_dream_ctx(tmp_path, "/dream")
+
+    out = await cmd_dream(ctx)
+
+    _assert_refused(out)
+    assert ctx.loop.bus.outbound == []
+
+
+@pytest.mark.asyncio
+async def test_disabled_dream_leaves_state_untouched(tmp_path) -> None:
+    """A refusal must not run consolidation, write files, or move the cursor."""
+    store = MemoryStore(tmp_path)
+    store.write_memory("# Memory before")
+    store.append_history("entry-01")
+    before_cursor = store.get_last_dream_cursor()
+    git = _FakeGit(initialized=True)
+    msg = InboundMessage(channel="cli", sender_id="u1", chat_id="direct", content="/dream-log")
+    bus = _FakeBus()
+    loop = SimpleNamespace(
+        bus=bus,
+        context=SimpleNamespace(memory=store, timezone="UTC"),
+        consolidator=SimpleNamespace(store=_FakeStore(git, dream_prompt_result=("prompt", 1))),
+        sessions=_make_sessions(tmp_path),
+        dream_enabled=False,
+    )
+    # Snapshot after session bookkeeping exists so only Dream writes matter.
+    before_files = {p.name: p.read_bytes() for p in sorted(tmp_path.rglob("*")) if p.is_file()}
+
+    out = await cmd_dream_log(
+        CommandContext(msg=msg, session=None, key=msg.session_key, raw="/dream-log", args="", loop=loop),
+    )
+    await cmd_dream_restore(
+        CommandContext(
+            msg=msg, session=None, key=msg.session_key, raw="/dream-restore", args="abc123", loop=loop,
+        ),
+    )
+    await cmd_dream_prompt(
+        CommandContext(
+            msg=msg, session=None, key=msg.session_key, raw="/dream-prompt", args="init", loop=loop,
+        ),
+    )
+
+    _assert_refused(out)
+    assert git.revert_calls == []
+    assert store.get_last_dream_cursor() == before_cursor
+    assert store.read_memory() == "# Memory before"
+    assert not (tmp_path / "prompts" / "dream.md").exists()
+    after_files = {p.name: p.read_bytes() for p in sorted(tmp_path.rglob("*")) if p.is_file()}
+    assert after_files == before_files
+
+
+@pytest.mark.asyncio
+async def test_dream_commands_run_when_enabled(tmp_path) -> None:
+    """The guard must not fire for the default enabled configuration."""
+    ctx = _make_dream_prompt_ctx(tmp_path, "/dream-prompt", args="")
+
+    out = await cmd_dream_prompt(ctx)
+
+    assert "Dream is disabled" not in out.content
+    assert "Dream memory instructions" in out.content

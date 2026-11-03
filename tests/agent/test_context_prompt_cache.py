@@ -146,7 +146,7 @@ def test_scheduling_contract_reaches_fresh_and_legacy_workspaces(tmp_path, legac
     from nanobot.utils.helpers import sync_workspace_templates
 
     workspace = _make_workspace(tmp_path)
-    agents_path = workspace / "AGENTS.md"
+    agents_path = workspace / "NANOBOT.md"
     legacy_rule = (
         "When the user asks for a recurring/periodic task, update HEARTBEAT.md "
         "instead of creating a one-time cron reminder."
@@ -168,7 +168,7 @@ def test_scheduling_contract_reaches_fresh_and_legacy_workspaces(tmp_path, legac
         assert system.index(legacy_rule) < system.index("## Scheduling")
         assert "even if workspace guidance describes recurring tasks as heartbeat tasks" in system
     else:
-        assert "## AGENTS.md" not in system
+        assert "## NANOBOT.md" not in system
     assert "每天早上8点提醒我喝水" in messages[-1]["content"]
     assert builder.build_messages(history=[], current_message="Check issues when convenient")[0] == messages[0]
     assert agents_path.read_bytes() == original
@@ -255,7 +255,7 @@ def test_fresh_workspace_omits_default_prompt_scaffolding(tmp_path) -> None:
 
     prompt = ContextBuilder(workspace).build_system_prompt()
 
-    assert "## AGENTS.md" not in prompt
+    assert "## NANOBOT.md" not in prompt
     assert "## USER.md" not in prompt
     assert "8281248569" not in prompt
     assert "(your name)" not in prompt

@@ -2056,6 +2056,14 @@
             "title": "Mostrar ajuda",
             "description": "Mostre os comandos de barra disponíveis."
           },
+          "git": {
+            "title": "Sincronizar Git",
+            "description": "Faz commit do workspace, pull com rebase e push."
+          },
+          "read": {
+            "title": "Ler arquivo Markdown",
+            "description": "Mostra um arquivo Markdown do workspace."
+          },
           "pairing": {
             "title": "Pareamento",
             "description": "Gerencie solicitações de pareamento."

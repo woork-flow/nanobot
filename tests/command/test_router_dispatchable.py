@@ -40,6 +40,8 @@ class TestIsDispatchableCommand:
         assert router.is_dispatchable_command("/dream-prompt")
         assert router.is_dispatchable_command("/goal")
         assert router.is_dispatchable_command("/pairing")
+        assert router.is_dispatchable_command("/git")
+        assert router.is_dispatchable_command("/read")
 
     def test_prefix_commands_match(self, router: CommandRouter) -> None:
         assert router.is_dispatchable_command("/dream-log abc123")
@@ -49,6 +51,8 @@ class TestIsDispatchableCommand:
         assert router.is_dispatchable_command("/goal migrate the database")
         assert router.is_dispatchable_command("/pairing list")
         assert router.is_dispatchable_command("/pairing approve CODE")
+        assert router.is_dispatchable_command("/git sync workspace")
+        assert router.is_dispatchable_command("/read NOTES.md")
         assert router.is_dispatchable_command("/__shell pwd")
 
     def test_priority_commands_not_matched(self, router: CommandRouter) -> None:

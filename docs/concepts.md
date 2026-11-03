@@ -45,7 +45,7 @@ The configured workspace is the **agent workspace**. A WebUI chat can also selec
 
 | Resource | Owner when a project is selected |
 |---|---|
-| Project instructions | `AGENTS.md` from the selected project; there is no fallback to the agent workspace's `AGENTS.md` |
+| Project instructions | `NANOBOT.md` from the selected project; there is no fallback to the agent workspace's `NANOBOT.md` |
 | Agent profile | `SOUL.md` and `USER.md` from the agent workspace; project-local files with those names are ignored |
 | Memory and custom skills | `memory/` and `skills/` from the agent workspace |
 | Relative file paths and shell working directory | The selected project workspace |
