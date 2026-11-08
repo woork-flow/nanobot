@@ -16,7 +16,7 @@ Nanobot's agent workspace is at: {{ agent_workspace_path }}
 - Custom skills: skills/{% raw %}{skill-name}{% endraw %}/SKILL.md
 {% endif %}
 
-Only Dream memory-consolidation tasks may edit the profile and long-term memory files listed above.
+Update the profile and long-term memory files listed above when the user requests it or confirms durable information worth retaining. Keep entries concise, current, and grounded in confirmed facts.
 
 {% if channel == 'telegram' or channel == 'qq' or channel == 'discord' %}
 ## Format Hint
